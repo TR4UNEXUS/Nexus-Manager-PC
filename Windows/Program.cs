@@ -107,7 +107,8 @@ partial class LibraryWindow:Form
         fileMenu.DropDownItems.Add(updateCommand);
         fileMenu.DropDownItems.Add(new ToolStripSeparator());fileMenu.DropDownItems.Add("E&xit",null,(_,_)=>Close());
         var viewMenu=new ToolStripMenuItem("&View");viewMenu.DropDownItems.Add(new ToolStripMenuItem("Refresh library",null,(_,_)=>{RefreshDrives();BindLibrary(true);}){ShortcutKeys=Keys.F5});
-        menu.Items.Add(fileMenu);menu.Items.Add(viewMenu);NexusTheme.MenuStyle(menu);
+        var supportMenu=new ToolStripMenuItem("&Support Nexus",null,(_,_)=>ShowProjectSupport());
+        menu.Items.Add(fileMenu);menu.Items.Add(viewMenu);menu.Items.Add(supportMenu);NexusTheme.MenuStyle(menu);
         grid.Controls.Add(new WorkspaceHeader(menu),0,0);
 
         settings.AutoSize=true;settings.WrapContents=true;settings.Padding=new Padding(5,5,0,5);
@@ -251,6 +252,26 @@ partial class LibraryWindow:Form
         bool idle=CanQueue&&discovery==null;
         foreach(var b in inputs)b.Enabled=idle;
         compressInstall.Enabled=idle;drives.Enabled=idle;menu.Enabled=idle;stop.Enabled=active!=null||discovery!=null;Ready();
+    }
+    void ShowProjectSupport()
+    {
+        const string url = "https://www.buymeacoffee.com/TechRepairs4u";
+        var coffee = new TaskDialogButton("Buy me a coffee");
+        var page = new TaskDialogPage {
+            Caption = "Nexus Manager for PC",
+            Heading = "Support Nexus",
+            Text = "If Nexus has been useful to you, consider buying me a coffee. Your support gives me more time to build new features and test fixes. Thanks for supporting my work!",
+            Buttons = { coffee, TaskDialogButton.Close },
+            DefaultButton = TaskDialogButton.Close,
+            AllowCancel = true
+        };
+        if (TaskDialog.ShowDialog(this, page) != coffee) return;
+        try {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true })?.Dispose();
+        }
+        catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException) {
+            MessageBox.Show(this, "Windows could not open your browser. You can visit " + url, "Support Nexus");
+        }
     }
     void ChooseKeys(){
         using var dialog=new OpenFileDialog{Filter="Switch keys (*.keys)|*.keys",Title="Select your local prod.keys"};

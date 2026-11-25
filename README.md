@@ -45,6 +45,10 @@ For an installed USB game, select **USB library → Compress game** and confirm 
 
 Compression merges the selected update into the rebuilt base game. Keep your original packages so you can rebuild with future updates. A separate update for the original base can prevent the compressed game from starting. The upstream compressor requires compatible signature patches and Switch system software 12.0.0 or newer. [hacBrewPackLZ documentation](https://gitlab.com/ismaellozanoperezserrano/hacbrewpacklz/-/blob/c7ce8f833d9901c30645b94afaca4dd8c08be845/README.md)
 
+## Support Nexus
+
+If Nexus has been useful to you, consider [buying me a coffee](https://www.buymeacoffee.com/TechRepairs4u). Your support gives me more time to build new features and test fixes. Thanks for supporting my work!
+
 ## Build and test
 
 The desktop app targets .NET 8. The separate compression engine needs the .NET 10 SDK at build time. Run `.\Windows\Publish.ps1 -OutputDirectory .\publish` to build both executables. If the .NET 10 SDK is installed separately, pass its executable with `-CompressionDotnet`. To build the installer, also pass `-InstallerCompiler` with the path to Inno Setup 6's ISCC.exe.
