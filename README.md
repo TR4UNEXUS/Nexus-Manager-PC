@@ -49,6 +49,8 @@ Compression merges the selected update into the rebuilt base game. Keep your ori
 
 If Nexus has been useful to you, consider [buying me a coffee](https://www.buymeacoffee.com/TechRepairs4u). Your support gives me more time to build new features and test fixes. Thanks for supporting my work!
 
+<a href="https://www.buymeacoffee.com/TechRepairs4u"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" width="217" height="60"></a>
+
 ## Build and test
 
 The desktop app targets .NET 8. The separate compression engine needs the .NET 10 SDK at build time. Run `.\Windows\Publish.ps1 -OutputDirectory .\publish` to build both executables. If the .NET 10 SDK is installed separately, pass its executable with `-CompressionDotnet`. To build the installer, also pass `-InstallerCompiler` with the path to Inno Setup 6's ISCC.exe.
