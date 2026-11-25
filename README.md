@@ -4,6 +4,8 @@ Manage a Nexus USB game drive on Windows x64. Browse installed games, preview co
 
 [Download the Windows installer](https://github.com/TR4UNEXUS/Nexus-Manager-PC/releases/latest/download/Nexus-Manager-PC-win-x64-Setup.exe)
 
+![Nexus Manager for PC showing installed USB games, their sizes, and estimated compression savings](docs/screenshots/usb-library.png)
+
 Open the installer, then start **Nexus Manager for PC** from the Windows Start menu. From version 0.1.9, Manager checks GitHub when it opens. When a newer release is available, choose **Yes** to download, install and reopen Manager. For a manual check, choose **File → Check for updates**. If you use an older version, run the Windows installer once to get the updater.
 
 For Switch sync, use **Nexus HATS NX1** (any edition) and **Switch Nexus Manager 0.2.33 or later**. Use Switch Manager **0.2.39 or later** for compressed game replacements. The Switch checks the HATS pack and USB service before it offers to sync.
