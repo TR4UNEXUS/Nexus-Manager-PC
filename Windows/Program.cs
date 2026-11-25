@@ -27,7 +27,7 @@ record Volume(string Root,string Label,string Format,long Free,uint Serial)
     public void Check()
     {
         if(!GetVolumeInformation(Root,null,0,out var s,out _,out _,null,0)||s!=Serial)
-            throw new IOException("The selected USB volume changed. Reconnect it and refresh the drive list.");
+            throw new InstallDestinationException("The selected USB volume disconnected or changed. Reconnect it and refresh the drive list.");
     }
 }
 static class Program
@@ -105,10 +105,14 @@ partial class LibraryWindow:Form
         fileMenu.DropDownItems.Add(new ToolStripMenuItem("Choose prod.&keys…",null,(_,_)=>ChooseKeys()));
         updateCommand.Click+=async (_,_)=>await CheckDesktopUpdate(true);
         fileMenu.DropDownItems.Add(updateCommand);
+        fileMenu.DropDownItems.Add("Support &Nexus…",null,(_,_)=>ShowProjectSupport());
         fileMenu.DropDownItems.Add(new ToolStripSeparator());fileMenu.DropDownItems.Add("E&xit",null,(_,_)=>Close());
         var viewMenu=new ToolStripMenuItem("&View");viewMenu.DropDownItems.Add(new ToolStripMenuItem("Refresh library",null,(_,_)=>{RefreshDrives();BindLibrary(true);}){ShortcutKeys=Keys.F5});
-        var supportMenu=new ToolStripMenuItem("&Support Nexus",null,(_,_)=>ShowProjectSupport());
-        menu.Items.Add(fileMenu);menu.Items.Add(viewMenu);menu.Items.Add(supportMenu);NexusTheme.MenuStyle(menu);
+        menu.Items.Add(fileMenu);menu.Items.Add(viewMenu);menu.Items.Add(CreateCoffeeButton());
+        menu.ShowItemToolTips=true;
+        void SizeCoffeeButton() => menu.ImageScalingSize=LogicalToDeviceUnits(new Size(114,32));
+        SizeCoffeeButton(); DpiChanged+=(_,_)=>SizeCoffeeButton();
+        NexusTheme.MenuStyle(menu);
         grid.Controls.Add(new WorkspaceHeader(menu),0,0);
 
         settings.AutoSize=true;settings.WrapContents=true;settings.Padding=new Padding(5,5,0,5);
@@ -253,19 +257,40 @@ partial class LibraryWindow:Form
         foreach(var b in inputs)b.Enabled=idle;
         compressInstall.Enabled=idle;drives.Enabled=idle;menu.Enabled=idle;stop.Enabled=active!=null||discovery!=null;Ready();
     }
+    const string SupportMessage = "If Nexus has been useful to you, consider buying me a coffee. Your support gives me more time to build new features and test fixes. Thanks for supporting my work!";
+
+    ToolStripMenuItem CreateCoffeeButton()
+    {
+        using var stream = typeof(LibraryWindow).Assembly.GetManifestResourceStream("Nexus.Desktop.CoffeeButton.png")!;
+        using var original = Image.FromStream(stream);
+        var image = new Bitmap(original);
+        var button = new ToolStripMenuItem("&Buy me a coffee", image, (_,_) => OpenCoffeePage()) {
+            DisplayStyle = ToolStripItemDisplayStyle.Image,
+            AccessibleName = "Buy me a coffee",
+            AccessibleDescription = SupportMessage,
+            ToolTipText = SupportMessage
+        };
+        button.Disposed += (_,_) => image.Dispose();
+        return button;
+    }
+
     void ShowProjectSupport()
     {
-        const string url = "https://www.buymeacoffee.com/TechRepairs4u";
         var coffee = new TaskDialogButton("Buy me a coffee");
         var page = new TaskDialogPage {
             Caption = "Nexus Manager for PC",
             Heading = "Support Nexus",
-            Text = "If Nexus has been useful to you, consider buying me a coffee. Your support gives me more time to build new features and test fixes. Thanks for supporting my work!",
+            Text = SupportMessage,
             Buttons = { coffee, TaskDialogButton.Close },
             DefaultButton = TaskDialogButton.Close,
             AllowCancel = true
         };
-        if (TaskDialog.ShowDialog(this, page) != coffee) return;
+        if (TaskDialog.ShowDialog(this, page) == coffee) OpenCoffeePage();
+    }
+
+    void OpenCoffeePage()
+    {
+        const string url = "https://www.buymeacoffee.com/TechRepairs4u";
         try {
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true })?.Dispose();
         }
@@ -337,82 +362,5 @@ partial class LibraryWindow:Form
         bar.Visible=active!=null || (queue.Count>0 && bar.Completed);
         if(scanSavings!=null)scanSavings.Enabled=CanQueue&&discovery==null&&keys!=null&&queue.Count>0;
         if(go!=null)go.Enabled=CanQueue && discovery==null && keys!=null && drives.SelectedItem is Volume && queue.Count>0;
-    }
-    async Task Run(bool scanOnly=false)
-    {
-        var target=drives.SelectedItem as Volume;
-        if(!CanQueue||discovery!=null||keys==null||queue.Count==0||(!scanOnly&&target==null))return;
-        var selected=queue.ToArray();active=new();var token=active.Token;
-        library.SetSource(null,null,true);LockControls();bar.Begin();
-        string current="";
-        try
-        {
-            await library.StopReading();token.ThrowIfCancellationRequested();
-            status.Text="Checking packages and permissions…";
-            var plans=await Task.Run(()=>{var keyset=RememberedKeys.Current.Open(keys);return selected.Select(path=>{current=Path.GetFileName(path);return Packages.Inspect(path,keyset,token);}).ToList();},token);
-            var games=plans.SelectMany(p=>p.Games).ToList();
-            var details=string.Join("\n",games.Take(10).Select(g=>$"{g.Kind} · {g.Id:X16} · v{g.Version}"));
-            if(games.Count>10)details+=$"\n… and {games.Count-10} more";
-            int missing=plans.Sum(p=>p.MissingTickets.Length);
-            bool compress=compressInstall.Checked;
-            using var compression=(scanOnly||compress)?new CompressionJob():null;
-            if(compression!=null){
-                Compression.ExpectedTitles(games);
-                token.ThrowIfCancellationRequested();status.Text="Scanning compression savings…";
-                var note=new Progress<string>(s=>{if(active!=null)status.Text=s;});
-                var scanMeter=new Progress<CompressionUpdate>(tick=>{if(active!=null){
-                    status.Text=tick.Stage;bar.Report(tick.Fraction*(scanOnly ? .99 : .05));
-                }});
-                var estimates=await compression.Estimate(selected,keys,note,token,meter:scanMeter);
-                if(!estimates.Select(e=>e.GameId).ToHashSet().SetEquals(games.Select(g=>g.FamilyId)))
-                    throw new InvalidDataException("The scan could not estimate every selected game.");
-                token.ThrowIfCancellationRequested();
-                if(scanOnly){
-                    bar.Report(1);CompressionPreview.ShowResults(this,estimates);status.Text=$"Scan finished · {estimates.Count} game(s)";return;
-                }
-                details=string.Join("\n",estimates.Take(10).Select(e=>$"{e.Name} · estimated saving {e.Savings}"));
-                if(estimates.Count>10)details+=$"\n… and {estimates.Count-10} more";
-            }
-            if(target==null)return;
-            if(compress){
-                details+="\n\nCompression rebuilds each game and merges its update. Keep your original packages for future updates. A compressed game requires compatible Switch system software (12.0.0 or newer) and signature patches. Remove any separate copy or update for this game from the Switch before importing.";
-            }
-            if(missing>0)details+=$"\n\n{missing} required permission(s) have no usable original ticket and certificate in these packages. You can still prepare the game files. The Switch can use permissions it already has. For a missing permission, use your original backup.";
-            var confirmed=MessageBox.Show(this,$"Prepare {selected.Length} package(s) on {target.Root} {target.Label}?\n\n{Requirements}\n\n{details}","Review USB installation",MessageBoxButtons.OKCancel,MessageBoxIcon.Information,MessageBoxDefaultButton.Button2);
-            if(confirmed!=DialogResult.OK){status.Text="Cancelled before writing.";return;}
-            token.ThrowIfCancellationRequested();target.Check();
-            Action? checkLibrary=null;
-            if(compression!=null){
-                var families=games.Select(g=>g.FamilyId).ToHashSet();
-                checkLibrary=()=>{
-                    var inventory=Library.Scan(target.Root,RememberedKeys.Current.Open(keys),token,readControls:false);
-                    if(inventory.Unidentified!=0)throw new IOException("Some USB files could not be identified. Resolve them before installing a rebuilt game.");
-                    if(inventory.Games.Any(g=>families.Contains(g.Id)))throw new IOException("This game already has files on USB. Use USB library → Compress game to prepare its replacement.");
-                };
-                await Task.Run(checkLibrary,token);
-                var note=new Progress<string>(s=>{if(active!=null)status.Text=s;});
-                bar.Visible=true;
-                var compressionMeter=new Progress<CompressionUpdate>(tick=>{if(active!=null){
-                    status.Text=tick.Stage;bar.Report(.05+.70*tick.Fraction);
-                }});
-                plans=await compression.Convert(plans,keys,note,token,compressionMeter);
-                target.Check();
-            }
-            var progress=new Progress<Activity>(a=>{
-                if(active==null)return;
-                double done=a.Done/Math.Max(1d,a.Total);
-                bar.Report(compress ? .75+.24*done : .99*done);
-                status.Text=$"{a.Package} · {a.Stage} · {a.MiBPerSecond:0.0} MiB/s";
-            });
-            current="";var result=await Task.Run(()=>Nexus.Pc.Installer.Write(target.Root,plans,progress,token,target.Check,checkLibrary),token);
-            bar.Report(1);status.Text=$"USB ready · {result.Written} files written · {result.Reused} reused";
-            MessageBox.Show(this,$"Safely eject {target.Root} in Windows, then plug it into your Switch.\n\nOn Nexus HATS NX1, open Switch Manager 0.2.39 to detect and add new games. For manual import, open Installed games → Import from PC → Add games to HOME. Fully restart the Switch after import before launching the game."+(missing>0?"\n\nFor packages without an original ticket and certificate, the Switch must already have the required permission.":""),"Ready for Switch",MessageBoxButtons.OK,MessageBoxIcon.Information);
-        }
-        catch(OperationCanceledException){status.Text=scanOnly?"Scan cancelled.":"Stopped. The unfinished package was cleaned up. Earlier completed packages are kept.";}
-        catch(Exception ex){
-            var reason=ex is IOException or UnauthorizedAccessException or InvalidDataException?ex.Message:"The package or key set could not be read. Check your prod.keys and the original game package.";
-            status.Text=scanOnly?"Scan stopped.":"Installation stopped.";MessageBox.Show(this,(current.Length>0?current+"\n\n":"")+reason,"Nexus Manager for PC",MessageBoxButtons.OK,MessageBoxIcon.Warning);
-        }
-        finally{if(!bar.Completed)bar.Clear();active.Dispose();active=null;LockControls();if(closing)BeginInvoke(Close);else{RefreshDrives();BindLibrary(true);}}
     }
 }

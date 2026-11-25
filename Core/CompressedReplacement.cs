@@ -175,7 +175,12 @@ public static class CompressedReplacement
         else{
             string temp=At(root,Ready+"/posting");File.Delete(temp);WriteNew(temp,receipt);File.Move(temp,sync,false);
         }
-        check();Directory.Move(ready,At(root,Done));Clear(root,Done,check);
+        // Keep the committed transaction available for recovery until the Switch
+        // change record can be read back through the final public path.
+        check();
+        Require(new FileInfo(sync).Length==receipt.Length && File.ReadAllBytes(sync).AsSpan().SequenceEqual(receipt),
+            "Could not confirm the Switch sync record. Reconnect this drive in PC Manager to finish recovery.");
+        Directory.Move(ready,At(root,Done));Clear(root,Done,check);
     }
 
     // Remove only these app-owned transaction directories. Validate every child path before traversal.

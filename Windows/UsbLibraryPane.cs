@@ -143,7 +143,7 @@ sealed class UsbLibraryPane : UserControl
                 result=estimate.Skipped?"The compressor skips this game.":"This game is already at its compressed size.";
                 CompressionPreview.ShowResults(this,[estimate]);return;
             }
-            string confirm=$"{game.Name}\n\n{estimate.Description}\n\nCompress and replace the USB copy on {target.Root}? Open Switch Manager 0.2.39 or later afterwards to sync HOME.";
+            string confirm=$"{game.Name}\n\n{estimate.Description}\n\nCompress and replace the USB copy on {target.Root}? Switch Manager 0.2.40 or later will relink the game on startup with this drive connected.";
             if(MessageBox.Show(this,confirm,"Compress installed game",MessageBoxButtons.YesNo,MessageBoxIcon.Question,
                 MessageBoxDefaultButton.Button2)!=DialogResult.Yes){result="Compression cancelled.";return;}
             status.Text="Preparing "+game.Name+"...";
@@ -163,7 +163,7 @@ sealed class UsbLibraryPane : UserControl
                 status.Text=a.Done>=a.Total?"Finishing USB replacement…":$"{a.Stage} · {a.MiBPerSecond:0.#} MiB/s";
             }});
             long saved=await Task.Run(()=>CompressedReplacement.Install(target.Root,game,keyset,output[0],progress,token,target.Check),token);
-            bar.Report(1);result="Compressed "+game.Name+" and freed "+FormatSize(saved)+". Open Switch Manager 0.2.39 or later to sync HOME.";
+            bar.Report(1);result="Compressed "+game.Name+" and freed "+FormatSize(saved)+". Switch sync is queued on the drive. Open Switch Manager 0.2.40 or later with it connected to update HOME automatically.";
         }catch(OperationCanceledException){result="Compression stopped.";}
         catch(Exception ex){MessageBox.Show(this,ex.Message,"Compress game",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
         finally{if(!bar.Completed)bar.Clear();compressing=false;write.Dispose();write=null;WriteStateChanged?.Invoke();if(!IsDisposed)Reload(result);}

@@ -133,6 +133,7 @@ try {
         // Keep unrelated fault-injection content outside the fixture library.
         drive=Directory.CreateDirectory(Path.Combine(root,"fixture-volume")).FullName;
         var package=Packages.Inspect(args[1],Packages.OpenKeys(args[0]),default);
+        InstallQueueTests.Run(root,args[1],Packages.OpenKeys(args[0])).GetAwaiter().GetResult();
         FormatTests.Run(root,args[1],Packages.OpenKeys(args[0]));
         foreach(var name in new[]{"ticketless.nsp","cartridge-media.nsp"}){
             var example=Path.Combine(Path.GetDirectoryName(args[1])!,name);

@@ -8,20 +8,22 @@ Manage a Nexus USB game drive on Windows x64. Browse installed games, preview co
 
 Open the installer, then start **Nexus Manager for PC** from the Windows Start menu. From version 0.1.9, Manager checks GitHub when it opens. When a newer release is available, choose **Yes** to download, install and reopen Manager. For a manual check, choose **File → Check for updates**. If you use an older version, run the Windows installer once to get the updater.
 
-For Switch sync, use **Nexus HATS NX1** (any edition) and **Switch Nexus Manager 0.2.33 or later**. Use Switch Manager **0.2.39 or later** for compressed game replacements. The Switch checks the HATS pack and USB service before it offers to sync.
+For Switch sync, use **Nexus HATS NX1** (any edition) and **Switch Nexus Manager 0.2.33 or later**. Use Switch Manager **0.2.40 or later** for compressed game replacements. The Switch checks the HATS pack and USB service before it offers to sync.
 
 ## Install from PC
 
 1. Connect the exFAT or FAT32 USB game drive to the PC. Open NexusManagerPC.exe and choose your own local prod.keys once. The app saves an encrypted copy of the selected prod.keys for the current Windows account. You may remove the original drive afterward. Choose prod.keys again to replace it. The USB library opens automatically when the drive is detected. If several game drives are connected, select the one you want.
 2. Open **Install games**, drop files or folders onto the window, or choose **Add folder**. Manager scans subfolders for NSP, NSX, NSZ, XCI and XCZ packages and skips duplicates. Review the queue and choose **Review and install**. Each new content file is checked against the package and read back before publication. Existing matching files are reused. FAT32 requires every individual content file to fit its 4 GiB limit.
 3. Safely eject the drive in Windows. Connect it to your Switch and open Switch Manager from HOME, or start its NRO in full-memory mode.
-4. Switch Manager 0.2.39 detects prepared games on startup. For manual import, choose **Installed games → Import from PC → Add games to HOME**. After the import finishes, fully restart the Switch before launching a newly added game. The Switch registers the existing USB files and imports eligible original tickets through its ticket service. Games requiring permissions need either a ticket already accepted on that system or a valid original ticket/certificate pair for it. Personalised permissions remain subject to the console's own checks.
+4. Switch Manager 0.2.40 detects prepared games on startup. For manual import, choose **Installed games → Import from PC → Add games to HOME**. After the import finishes, fully restart the Switch before launching a newly added game. The Switch registers the existing USB files and imports eligible original tickets through its ticket service. Games requiring permissions need either a ticket already accepted on that system or a valid original ticket/certificate pair for it. Personalised permissions remain subject to the console's own checks.
 
 In **HATS Installer**, select the HATS pack and Switch SD card, choose a PC backup folder, then select **Install selected pack**. The tab downloads the chosen release from TR4UNEXUS/Nexus-USB-HATS, backs up the files it replaces and protects your USB game mappings, games and mods. The separate FAT32 action erases a card after confirmation.
 
 In **USB Formatter**, choose a USB drive. **Keep files** lets you inspect its partitions, convert a supported exFAT layout or recover an interrupted conversion. **Erase & format** creates a fresh exFAT drive and asks for confirmation. Windows may ask for administrator permission for the disk operation. Progress and results appear in the tab.
 
-New files are staged per package. If a package fails or you cancel, Manager removes that package's unfinished files. Earlier completed packages and files already on the drive are kept. Reconnecting a drive after an interruption lets Manager clean up staging or finish an already verified commit.
+Manager checks and installs each queued package independently. If one fails, it continues with the next. For compression, the base game, selected update and DLC are processed together. At the end, Manager shows which packages failed, the step and the reason. It saves the report under `%LOCALAPPDATA%\NexusManagerPC\Logs`. Successful packages leave the queue so you can retry the remaining files. Cancelling, disconnecting the destination drive or a USB recovery problem stops the queue.
+
+New files are staged per package. Earlier completed packages and files already on the drive are kept. Reconnecting the same drive after an interruption lets Manager clean up staging or finish an already verified commit.
 
 An XCI may have its private cartridge certificate removed. Only game files in its secure partition are imported. An NSP or NSZ can also omit the ticket certificate. Files are still prepared. If those game files require a ticket, the Switch needs its existing permission or an original ticket and certificate from your backup. Content whose bytes disagree with its manifest is rejected.
 
@@ -41,11 +43,13 @@ The **Compression** column updates when the library opens. **Nexus compressed** 
 
 For a new USB install, select **Install games → Compress before installing**. Add the base game, its matching update and any DLC together. NSP, NSX, NSZ, XCI and XCZ are accepted. Protected files need the original ticket and certificate. Manager builds and verifies a smaller package on the PC before writing to USB. Allow free space on the PC for the working files.
 
-For an installed USB game, select **USB library → Compress game** and confirm the drive. Manager uses temporary space on the PC for the original and compressed packages. It stages and checks the new files on USB before replacing the installed copy, then clears its working files. Allow free space on USB for the compressed copy as well. If the drive disconnects, reopen the USB library on the same PC and drive to finish recovery. Open **Switch Manager 0.2.39 or later** to sync the changed game with HOME. If the drive lacks a usable permission backup, Manager asks you to select your original package.
+For an installed USB game, select **USB library → Compress game** and confirm the drive. Manager uses temporary space on the PC for the original and compressed packages. It stages and checks the new files on USB before replacing the installed copy, then clears its working files. Allow free space on USB for the compressed copy as well. If the drive disconnects, reopen the USB library on the same PC and drive to finish recovery. Open **Switch Manager 0.2.40 or later** with the drive connected. The PC writes a verified change record to USB. On startup, Switch Manager uses it to update the USB map and HOME registration. Drives compressed with earlier PC versions can use their existing records. If the drive lacks a usable permission backup, Manager asks you to select your original package.
 
 Compression merges the selected update into the rebuilt base game. Keep your original packages so you can rebuild with future updates. A separate update for the original base can prevent the compressed game from starting. The upstream compressor requires compatible signature patches and Switch system software 12.0.0 or newer. [hacBrewPackLZ documentation](https://gitlab.com/ismaellozanoperezserrano/hacbrewpacklz/-/blob/c7ce8f833d9901c30645b94afaca4dd8c08be845/README.md)
 
 ## Support Nexus
+
+The yellow Buy Me a Coffee button at the top of the Windows app opens my support page in your browser.
 
 If Nexus has been useful to you, consider [buying me a coffee](https://www.buymeacoffee.com/TechRepairs4u). Your support gives me more time to build new features and test fixes. Thanks for supporting my work!
 

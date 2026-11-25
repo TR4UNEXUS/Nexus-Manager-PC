@@ -41,9 +41,14 @@ public static class Installer
         string work=LocalPath(root,"nexus/pc-import/v1");
         System.IO.Directory.CreateDirectory(work);
         using var session=new FileStream(LocalPath(root,"nexus/pc-import/v1/session.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
-        CompressedReplacement.Recover(root,checkVolume??(()=>{}));
-        if(Library.NeedsRecovery(root))throw new IOException("Open USB library and finish the interrupted deletion before installing packages.");
-        var staging=new InstallStaging(root,checkVolume??(()=>{}));staging.Recover();
+        var staging=new InstallStaging(root,checkVolume??(()=>{}));
+        try {
+            CompressedReplacement.Recover(root,checkVolume??(()=>{}));
+            if(Library.NeedsRecovery(root))throw new InstallDestinationException("Open USB library and finish the interrupted deletion before installing packages.");
+            staging.Recover();
+        } catch(Exception e) when(e is not InstallDestinationException && (e is IOException or UnauthorizedAccessException)){
+            throw new InstallDestinationException("USB library recovery could not finish. "+e.Message,e);
+        }
         checkLibrary?.Invoke();
         var unique=packages.SelectMany(p=>p.Files).DistinctBy(c=>c.Id);
         long required=unique.Where(c=>!File.Exists(LocalPath(root,RelativeContentPath(c.Id)))).Sum(c=>c.Part.Size)
@@ -159,9 +164,12 @@ public static class Installer
             checkVolume?.Invoke();Start("Ready for Switch");return new(written,reused,tickets,missing);
         }
         catch(Exception error){
-            try{staging.Abort();}
+            try{
+                staging.Abort();
+                if(InstallStaging.Pending(root))throw new IOException("Staged files still need recovery.");
+            }
             catch(Exception cleanup) when(cleanup is IOException or UnauthorizedAccessException){
-                throw new IOException("Reconnect the same USB drive and reopen its library to finish install recovery.",new AggregateException(error,cleanup));
+                throw new InstallDestinationException("Reconnect the same USB drive and reopen its library to finish install recovery. "+error.Message,new AggregateException(error,cleanup));
             }
             throw;
         }
