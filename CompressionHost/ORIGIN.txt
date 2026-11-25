@@ -1,0 +1,11 @@
+Nexus Compression Host uses hacBrewPackLZ 1.5.4.
+https://gitlab.com/ismaellozanoperezserrano/hacbrewpacklz
+Commit c7ce8f833d9901c30645b94afaca4dd8c08be845
+
+The upstream source and GPL version 2 license are in upstream.
+NexusCompressionHost.cs is the offline entry point. It passes local packages
+to the batch compressor and enables verification. The changes in upstream/src
+allow Crypto.cs to read keys over standard input and GameArchive.cs to accept
+NSX packages. GameArchive and TitleSet can also present the installed files on a USB drive as one read-only input. The Nexus entry point uses the upstream size estimator for the preview. Its copy marker includes an optional line identifying new Nexus builds. Options and Batch also expose compression progress to the desktop interface. Build this separate executable with the .NET 10 SDK and the
+included CompressionHost.csproj. No key files are included.
+

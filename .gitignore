@@ -1,0 +1,13 @@
+bin/
+obj/
+*.keys
+*.nsp
+*.nca
+*.tik
+*.cert
+*.del
+*.held
+*.user
+.vs/
+publish/
+

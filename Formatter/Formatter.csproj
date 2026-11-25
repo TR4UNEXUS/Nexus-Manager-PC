@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework><UseWPF>true</UseWPF><UseWindowsForms>true</UseWindowsForms>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems><Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="Engine/**/*.cs"/>
+    <EmbeddedResource Include="Engine/*;*.xaml;AppIcon.png" LogicalName="%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

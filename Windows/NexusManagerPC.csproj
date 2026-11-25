@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType><TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <AssemblyName>NexusManagerPC</AssemblyName><Product>Nexus Manager for PC</Product>
+    <ApplicationIcon>nexus.ico</ApplicationIcon>
+    <Version>0.1.9</Version><ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../Core/Core.csproj"/><ProjectReference Include="../Hats/Hats.csproj"/><ProjectReference Include="../Formatter/Formatter.csproj"/><EmbeddedResource Include="nexus.ico" /></ItemGroup>
+</Project>

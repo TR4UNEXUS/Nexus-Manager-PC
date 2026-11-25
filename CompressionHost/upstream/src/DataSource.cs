@@ -1,0 +1,206 @@
+using Microsoft.Win32.SafeHandles;
+
+namespace HacBrewPackLz;
+
+internal class ToolException(string message) : Exception(message);
+
+/// <summary>
+/// What was read isn't what it should be: it doesn't match its hashes, a compressed block in it doesn't decode, or an update reading it needs
+/// a part of the original game that isn't there. Read through a compressed copy, that's an update that doesn't fit the copy, rather than a
+/// file that can't be read.
+/// </summary>
+internal sealed class MismatchException(string message) : ToolException(message);
+
+/// <summary>Where a damaged file's numbers can't be trusted.</summary>
+internal static class Ranges
+{
+    /// <summary>Whether size bytes from offset lie within length, without the sum overflowing, as it can with what a damaged file says.</summary>
+    public static bool Fits(long offset, long size, long length) => offset >= 0 && size >= 0 && offset <= length && size <= length - offset;
+
+    /// <summary>The most a table of names or entries is read whole for. Real ones are a few KB; a damaged one could ask for gigabytes.</summary>
+    public const long MostTable = 16 << 20;
+}
+
+/// <summary>What went wrong with one game, whatever it was, as against having been asked to stop.</summary>
+internal static class Failures
+{
+    public static bool IsStop(Exception e) =>
+        e is OperationCanceledException || e is AggregateException all && all.Flatten().InnerExceptions.All(i => i is OperationCanceledException);
+
+    /// <summary>The usual failures say what they are. Anything else is a fault in this program, and says so.</summary>
+    public static string Describe(Exception e) => Help.WithNextStep(
+        e is ToolException or IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException or AggregateException
+            ? e.Message
+            : $"Something unexpected went wrong ({e.GetType().Name}): {e.Message}");
+}
+
+/// <summary>
+/// Read-only random access bytes. Everything that ends up in an NCA is described as a chain of these, so
+/// source files are only ever opened for reading and are never copied or edited on disk.
+/// </summary>
+internal abstract class DataSource
+{
+    public abstract long Length { get; }
+    public abstract void Read(long offset, byte[] buffer, int bufferOffset, int count);
+    public virtual void Release() { }
+
+    /// <summary>Whether several threads can read it at the same time.</summary>
+    public virtual bool ReadsAtOnce => false;
+}
+
+internal sealed class BytesSource(byte[] data) : DataSource
+{
+    public override long Length => data.Length;
+    public override bool ReadsAtOnce => true;
+
+    public override void Read(long offset, byte[] buffer, int bufferOffset, int count) =>
+        Buffer.BlockCopy(data, checked((int)offset), buffer, bufferOffset, count);
+}
+
+internal sealed class ZeroSource(long length) : DataSource
+{
+    public override long Length => length;
+    public override bool ReadsAtOnce => true;
+
+    public override void Read(long offset, byte[] buffer, int bufferOffset, int count) =>
+        Array.Clear(buffer, bufferOffset, count);
+}
+
+internal sealed class FileSource(string path, long length) : DataSource
+{
+    private readonly object _opening = new();
+    private SafeFileHandle? _handle;
+
+    public override long Length => length;
+    public override bool ReadsAtOnce => true;
+
+    public override void Read(long offset, byte[] buffer, int bufferOffset, int count)
+    {
+        SafeFileHandle handle;
+        lock (_opening)
+            handle = _handle ??= Open();
+        int done = 0;
+        while (done < count)
+        {
+            int n = RandomAccess.Read(handle, buffer.AsSpan(bufferOffset + done, count - done), offset + done);
+            if (n <= 0)
+                throw new ToolException($"'{path}' ended early, it changed while it was being read");
+            done += n;
+        }
+    }
+
+    public override void Release()
+    {
+        lock (_opening)
+        {
+            _handle?.Dispose();
+            _handle = null;
+        }
+    }
+
+    private SafeFileHandle Open()
+    {
+        var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete,
+            FileOptions.SequentialScan);
+        long actual = RandomAccess.GetLength(handle);
+        if (actual != length)
+        {
+            handle.Dispose();
+            throw new ToolException($"'{path}' changed size while building (expected {length}, found {actual})");
+        }
+        return handle;
+    }
+}
+
+/// <summary>A file that is already open, read through its own handle without moving any file position.</summary>
+internal sealed class HandleSource(SafeFileHandle handle, long length) : DataSource
+{
+    public override long Length => length;
+    public override bool ReadsAtOnce => true;
+
+    public override void Read(long offset, byte[] buffer, int bufferOffset, int count)
+    {
+        int done = 0;
+        while (done < count)
+        {
+            int n = RandomAccess.Read(handle, buffer.AsSpan(bufferOffset + done, count - done), offset + done);
+            if (n <= 0)
+                throw new ToolException("A file ended earlier than expected");
+            done += n;
+        }
+    }
+}
+
+internal sealed class SubSource(DataSource inner, long start, long length) : DataSource
+{
+    public override long Length => length;
+    public override bool ReadsAtOnce => inner.ReadsAtOnce;
+
+    public override void Read(long offset, byte[] buffer, int bufferOffset, int count)
+    {
+        if (offset < 0 || offset + count > length)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+        inner.Read(start + offset, buffer, bufferOffset, count);
+    }
+}
+
+internal sealed class ConcatSource : DataSource
+{
+    private readonly List<DataSource> _parts = [];
+    private readonly List<long> _starts = [];
+    private long _length;
+    private int _cursor;
+
+    public override long Length => _length;
+
+    public ConcatSource Add(DataSource part)
+    {
+        if (part.Length == 0)
+            return this;
+        _parts.Add(part);
+        _starts.Add(_length);
+        _length += part.Length;
+        return this;
+    }
+
+    public override void Read(long offset, byte[] buffer, int bufferOffset, int count)
+    {
+        if (count == 0)
+            return;
+        if (offset < 0 || offset + count > _length)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+
+        int index = Locate(offset);
+        while (count > 0)
+        {
+            var part = _parts[index];
+            long inner = offset - _starts[index];
+            int n = (int)Math.Min(count, part.Length - inner);
+            part.Read(inner, buffer, bufferOffset, n);
+            offset += n;
+            bufferOffset += n;
+            count -= n;
+            if (inner + n == part.Length)
+            {
+                // Sequential reads never come back, so at most one source file stays open at a time.
+                part.Release();
+                index++;
+            }
+        }
+        _cursor = Math.Min(index, _parts.Count - 1);
+    }
+
+    public override void Release()
+    {
+        foreach (var part in _parts)
+            part.Release();
+    }
+
+    private int Locate(long offset)
+    {
+        if (_cursor < _parts.Count && offset >= _starts[_cursor] && offset < _starts[_cursor] + _parts[_cursor].Length)
+            return _cursor;
+        int i = _starts.BinarySearch(offset);
+        return i >= 0 ? i : ~i - 1;
+    }
+}

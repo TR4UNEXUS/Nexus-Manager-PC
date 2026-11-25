@@ -1,0 +1,251 @@
+using System.Buffers.Binary;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+
+namespace HacBrewPackLz;
+
+/// <summary>
+/// Writes an NSP in one pass: a reserved PFS0 header, then each NCA straight into the file, then the real header.
+/// NCA names have a fixed length, so the header size is known before their hashes are. The file only gets its final
+/// name once it is complete.
+/// </summary>
+internal sealed class NspWriter : IDisposable
+{
+    private const int PfsEntrySize = 0x18;
+    private const int NcaNameLength = 36;      // 32 hex digits + ".nca"
+    private const int MetaNcaNameLength = 41;  // 32 hex digits + ".cnmt.nca"
+
+    private readonly string _path;
+    private readonly string _partPath;
+    private readonly FileStream _file;
+    /// <summary>What the NCAs are written through, which keeps RoomCheck.RoomToSpare free on the disk as the file grows.</summary>
+    private readonly RoomKeepingStream _out;
+    private readonly long _dataStart;
+    private readonly int _expectedFiles;
+    private readonly List<(string name, long offset, long size)> _files = [];
+    private readonly List<PosixSignalRegistration> _signals = [];
+    private bool _finished;
+
+    /// <param name="contentCount">How many NCAs will be written, not counting the meta NCAs.</param>
+    /// <param name="titleCount">How many titles go in, each with a meta NCA of its own: a game and its DLC.</param>
+    public NspWriter(string path, int contentCount, int titleCount = 1)
+    {
+        _path = path;
+        _partPath = path + ".part";
+        _expectedFiles = contentCount + titleCount;
+        _dataStart = HeaderSize(contentCount, titleCount);
+
+        _file = new FileStream(_partPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 1 << 20);
+        _file.SetLength(_dataStart);
+        _file.Position = _dataStart;
+        _out = new RoomKeepingStream(_file, Path.GetDirectoryName(Path.GetFullPath(_partPath)) ?? ".");
+
+        // On Windows these also cover Ctrl-Break and closing the console window, so a stopped build leaves no partial file.
+        // Android apps get no signals: they're stopped from the app, which cleans up the same way.
+        if (!OperatingSystem.IsAndroid())
+        {
+            foreach (var signal in new[] { PosixSignal.SIGINT, PosixSignal.SIGQUIT, PosixSignal.SIGHUP, PosixSignal.SIGTERM })
+                _signals.Add(PosixSignalRegistration.Create(signal, _ => Abandon()));
+        }
+    }
+
+    public static long HeaderSize(int contentCount, int titleCount = 1)
+    {
+        int nameTable = Align(contentCount * (NcaNameLength + 1) + titleCount * (MetaNcaNameLength + 1), 0x20);
+        return 0x10 + (contentCount + titleCount) * PfsEntrySize + nameTable;
+    }
+
+    public NcaInfo WriteNca(NcaWriter writer, string label, NcaContentType type, ulong titleId, NcaSection?[] sections, RSA? signer,
+        string extension = ".nca", int contentIndex = 0, uint? sdkVersion = null)
+    {
+        long total = sections.Where(s => s is not null).Sum(s => (s!.Data.Length + 0x1FF) & ~0x1FFL);
+        var progress = new ProgressReporter($"Writing {label} NCA", total);
+        long start = _file.Position;
+        var info = writer.Write(_out, type, titleId, sections, signer, progress, contentIndex, sdkVersion);
+        progress.Done();
+        _files.Add((info.Id + extension, start - _dataStart, info.Size));
+        Ui.Detail($"  {info.Id}{extension} ({ProgressReporter.Format(info.Size)})");
+        return info;
+    }
+
+    /// <summary>For an NCA that's compressed on its way into the file. It starts right here, and gets its header at the end.</summary>
+    public NcaBuilder BeginNca(NcaWriter writer) => new(writer, _out);
+
+    public NcaInfo EndNca(NcaBuilder builder, NcaContentType type, ulong titleId, RSA? signer, int contentIndex = 0, uint? sdkVersion = null)
+    {
+        var info = builder.Finish(type, titleId, signer, contentIndex, sdkVersion);
+        _files.Add((info.Id + ".nca", builder.Start - _dataStart, info.Size));
+        Ui.Detail($"  {info.Id}.nca ({ProgressReporter.Format(info.Size)})");
+        return info;
+    }
+
+    public void Finish()
+    {
+        if (_files.Count != _expectedFiles)
+            throw new InvalidOperationException($"NSP reserved {_expectedFiles} files but received {_files.Count}");
+
+        WriteHeader();
+        _file.Flush(true);
+        _file.Dispose();
+        File.Move(_partPath, _path, overwrite: true);
+        _finished = true;
+    }
+
+    /// <summary>Copies the finished NCAs out to a folder. Only valid after Finish.</summary>
+    public void ExportNcas(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        using var nsp = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20);
+        var buffer = new byte[1 << 20];
+        foreach (var (name, offset, size) in _files)
+        {
+            using var output = new FileStream(Path.Combine(directory, name), FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20);
+            nsp.Position = _dataStart + offset;
+            for (long left = size; left > 0;)
+            {
+                int n = nsp.Read(buffer, 0, (int)Math.Min(buffer.Length, left));
+                if (n <= 0)
+                    throw new ToolException($"Unexpected end of '{_path}'");
+                output.Write(buffer, 0, n);
+                left -= n;
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        foreach (var signal in _signals)
+            signal.Dispose();
+        _file.Dispose();
+        if (!_finished)
+            TryDelete(_partPath);
+    }
+
+    private void Abandon()
+    {
+        try
+        {
+            _file.Dispose();
+        }
+        catch (Exception e) when (e is IOException or ObjectDisposedException)
+        {
+            // Another thread was writing to it. The process is exiting either way.
+        }
+        TryDelete(_partPath);
+        Environment.Exit(130);
+    }
+
+    private void WriteHeader()
+    {
+        using var strings = new MemoryStream();
+        var nameOffsets = new int[_files.Count];
+        for (int i = 0; i < _files.Count; i++)
+        {
+            nameOffsets[i] = (int)strings.Position;
+            strings.Write(Encoding.ASCII.GetBytes(_files[i].name));
+            strings.WriteByte(0);
+        }
+
+        int nameTable = (int)(_dataStart - 0x10 - _files.Count * PfsEntrySize);
+        if (strings.Length > nameTable)
+            throw new InvalidOperationException("PFS0 name table reservation is too small");
+
+        var header = new byte[_dataStart];
+        var h = header.AsSpan();
+        "PFS0"u8.CopyTo(h);
+        BinaryPrimitives.WriteInt32LittleEndian(h[4..], _files.Count);
+        BinaryPrimitives.WriteInt32LittleEndian(h[8..], nameTable);
+        for (int i = 0; i < _files.Count; i++)
+        {
+            var e = h[(0x10 + i * PfsEntrySize)..];
+            BinaryPrimitives.WriteInt64LittleEndian(e, _files[i].offset);
+            BinaryPrimitives.WriteInt64LittleEndian(e[8..], _files[i].size);
+            BinaryPrimitives.WriteInt32LittleEndian(e[0x10..], nameOffsets[i]);
+        }
+        strings.ToArray().CopyTo(h[(0x10 + _files.Count * PfsEntrySize)..]);
+
+        _file.Flush();
+        _file.Position = 0;
+        _file.Write(header);
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private static int Align(int value, int alignment) => (value + alignment - 1) & ~(alignment - 1);
+}
+
+/// <summary>
+/// Anything written through this keeps RoomCheck.RoomToSpare free on its disk, as the Switch does (roomToHold). What's free is checked each time
+/// the file grows by another 64 MB, and before every write once it's that close to the limit. Where the system can't say what's free, writing
+/// goes on. The file still belongs to the writer, which closes it.
+/// </summary>
+internal sealed class RoomKeepingStream(FileStream inner, string folder) : Stream
+{
+    private const long Step = 64L << 20;
+    private long _lookedTo;
+
+    private void Look(long end)
+    {
+        if (end <= _lookedTo)
+            return;
+        long length = inner.Length;
+        long free = RoomCheck.FreeWhileWriting(folder, length);
+        if (free < 0)
+        {
+            _lookedTo = long.MaxValue;
+            return;
+        }
+        long most = length + free - RoomCheck.RoomToSpare;
+        long wanted = Math.Max(end, length + Step);
+        if (wanted <= most)
+            _lookedTo = wanted;
+        else if (end <= most)
+            _lookedTo = end;
+        else
+            throw new ToolException(RoomCheck.NoRoomToKeep(folder));
+    }
+
+    public override bool CanRead => inner.CanRead;
+    public override bool CanSeek => inner.CanSeek;
+    public override bool CanWrite => inner.CanWrite;
+    public override long Length => inner.Length;
+    public override long Position { get => inner.Position; set => inner.Position = value; }
+    public override void Flush() => inner.Flush();
+    public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+    public override int Read(Span<byte> buffer) => inner.Read(buffer);
+    public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+
+    public override void SetLength(long value)
+    {
+        Look(value);
+        inner.SetLength(value);
+    }
+
+    public override void Write(byte[] buffer, int offset, int count)
+    {
+        Look(inner.Position + count);
+        inner.Write(buffer, offset, count);
+    }
+
+    public override void Write(ReadOnlySpan<byte> buffer)
+    {
+        Look(inner.Position + buffer.Length);
+        inner.Write(buffer);
+    }
+
+    // The file is closed by its writer, which deletes it when it isn't finished.
+    protected override void Dispose(bool disposing) { }
+}
