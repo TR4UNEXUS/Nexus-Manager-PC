@@ -75,7 +75,7 @@ public sealed class Installer
         log?.Invoke($"Updating {plan.Sysmodules.Length} identified HATS sysmodules. Games, mods, ports and console backups are protected.");
         log?.Invoke("Keeping this card's USB game mappings, HOME badges and repair/recovery data.");
         foreach (var (path, reason) in plan.AutomaticallyPreserved.Take(20)) log?.Invoke($"Skipping {path}: {reason}.");
-        if (plan.AutomaticallyPreserved.Count > 20) log?.Invoke($"{plan.AutomaticallyPreserved.Count - 20} more unrelated paths are protected.");
+        if (plan.AutomaticallyPreserved.Count > 20) log?.Invoke($"{plan.AutomaticallyPreserved.Count - 20} more paths are protected.");
         Directory.CreateDirectory(backup);
         File.WriteAllText(Path.Combine(backup, "HATS-recovery-plan.json"), JsonSerializer.Serialize(new { Target = sd, CreatedUtc = DateTime.UtcNow, Plan = plan, GitHubExclusions = exclusions }, new JsonSerializerOptions { WriteIndented = true }));
         if (exclusions != null) File.WriteAllText(Path.Combine(backup, "HATS-exclusions-used.json"), exclusions.Json);
@@ -101,8 +101,6 @@ public sealed class Installer
                 validateTarget?.Invoke(); var relative = plan.Copy[i]; CopyFile(Paths.Checked(source, relative), Paths.Checked(sd, relative));
                 progress?.Invoke(new("Installing", 35 + (i + 1) * 60d / Math.Max(1, plan.Copy.Length), false));
             }
-            var savedIni = Paths.Checked(backup, "bootloader/ini");
-            if (Directory.Exists(savedIni)) { validateTarget?.Invoke(); log?.Invoke("Restoring your bootloader settings."); VerifiedFiles.CopyTree(backup, savedIni, sd, Paths.Checked(sd, "bootloader/ini")); }
             File.WriteAllText(Path.Combine(backup, "INSTALL-COMPLETE.txt"), "HATS installation completed at " + DateTime.UtcNow.ToString("O"));
         }
         catch (Exception failure)

@@ -118,7 +118,7 @@ internal sealed class HatsPane : UserControl
             WindowsVolumes.Validate(card);
             var backup=Path.Combine(settings.BackupFolder,"HATS-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+"-"+Guid.NewGuid().ToString("N")[..6]);
             if(!format&&Paths.Overlap(backup,card.Root))throw new IOException("Choose a backup folder outside the selected SD card.");
-            string prompt=format?$"Erase every file on {card} and format it as FAT32?":$"Install {pack!.Name} on {card}?\n\nBackup folder\n{backup}";
+            string prompt=format?$"Erase every file on {card} and format it as FAT32?":$"Install {pack!.Name} at the root of {card.Root}?\n\nBackup folder\n{backup}";
             if(MessageBox.Show(this,prompt,format?"Erase SD card":"Install HATS",MessageBoxButtons.OKCancel,
                 format?MessageBoxIcon.Warning:MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.OK)return;
             WindowsVolumes.Validate(card);

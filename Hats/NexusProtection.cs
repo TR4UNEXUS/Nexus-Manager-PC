@@ -5,7 +5,7 @@ namespace Hats.Core;
 
 public static class NexusProtection
 {
-    public static readonly string[] MandatoryPaths = ["atmosphere/usb_content", "atmosphere/usb_badges",
+    public static readonly string[] MandatoryPaths = ["Nintendo", "emuMMC", "atmosphere/usb_content", "atmosphere/usb_badges",
         "atmosphere/usb_content-repair.pending", "config/nexusmanager", "config/nexus-manager"];
     // Repair/recovery snapshots are siblings of the live index directory. These
     // namespaces belong to the current card, including incomplete transactions.
@@ -30,7 +30,8 @@ public static class NexusProtection
     public static bool IsPackAsset(string name)
     {
         var lower = name.ToLowerInvariant();
-        return !lower.StartsWith("nexus-hats-desktop") && !lower.StartsWith("nexus-hats-installer") &&
+        return lower.StartsWith("nexus-", StringComparison.Ordinal) &&
+            !lower.StartsWith("nexus-hats-desktop") && !lower.StartsWith("nexus-hats-installer") &&
             !lower.StartsWith("nexus-usb-formatter") && !lower.StartsWith("nexus-manager") &&
             !lower.StartsWith("source.") && !lower.Contains("-source.") && !lower.Contains("-source-") &&
             !lower.EndsWith(".symbols.zip");
